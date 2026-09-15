@@ -262,21 +262,86 @@ let busy = false;
 const app = document.getElementById('app');
 
 /* ========================= STORAGE HELPERS ========================= */
-async function safeGet(key, shared){
-  try{ const r = await window.storage.get(key, shared); return r ? r.value : null; }
-  catch(e){ return null; }
+/* ========================= SUPABASE STORAGE ========================= */
+
+const SUPABASE_URL = "https://kljkhrygowzmhmhpxunf.supabase.co/rest/v1/";
+const SUPABASE_KEY = "sb_publishable_RtuE9ok0R6-OgySBVLnKCg_9gss5DBb";
+
+async function supabaseRequest(path, options = {}) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${SUPABASE_KEY}`,
+      "Content-Type": "application/json",
+      "Prefer": "return=representation",
+      ...(options.headers || {})
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
 }
-async function safeSet(key, value, shared){
-  try{ return await window.storage.set(key, value, shared); }
-  catch(e){ return null; }
+
+async function safeGet(key, shared) {
+  try {
+    const rows = await supabaseRequest(
+      `kv_store?key=eq.${encodeURIComponent(key)}&select=value`
+    );
+    return rows && rows.length ? rows[0].value : null;
+  } catch (e) {
+    console.error("safeGet:", e);
+    return null;
+  }
 }
-async function safeList(prefix, shared){
-  try{ const r = await window.storage.list(prefix, shared); return r ? r.keys : []; }
-  catch(e){ return []; }
+
+async function safeSet(key, value, shared) {
+  try {
+    await supabaseRequest("kv_store", {
+      method: "POST",
+      headers: {
+        "Prefer": "resolution=merge-duplicates,return=representation"
+      },
+      body: JSON.stringify({
+        key: key,
+        value: value,
+        shared: !!shared
+      })
+    });
+    return true;
+  } catch (e) {
+    console.error("safeSet:", e);
+    return null;
+  }
 }
-async function safeDelete(key, shared){
-  try{ return await window.storage.delete(key, shared); }
-  catch(e){ return null; }
+
+async function safeList(prefix, shared) {
+  try {
+    const rows = await supabaseRequest(
+      `kv_store?key=like.${encodeURIComponent(prefix)}*&select=key`
+    );
+    return { keys: (rows || []).map(row => row.key) };
+  } catch (e) {
+    console.error("safeList:", e);
+    return { keys: [] };
+  }
+}
+
+async function safeDelete(key, shared) {
+  try {
+    await supabaseRequest(
+      `kv_store?key=eq.${encodeURIComponent(key)}`,
+      { method: "DELETE" }
+    );
+    return true;
+  } catch (e) {
+    console.error("safeDelete:", e);
+    return null;
+  }
 }
 
 async function getRoundState(){
